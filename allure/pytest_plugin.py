@@ -7,7 +7,6 @@ import time
 import re
 import html
 
-from datetime import datetime
 from collections import namedtuple
 from six import text_type
 
@@ -20,26 +19,18 @@ from allure.structure import TestCase, TestStep, Attach, TestSuite, Failure, Tes
 
 from logger.cafylog import CafyLog
 
-def get_datentime():
-    'return date and time as string'
-    _time = time.time()
-    return datetime.fromtimestamp(_time).strftime('%Y%m%d-%H%M%S')
-
-_current_time = get_datentime()
 
 CAFY_REPO = os.getenv("GIT_REPO", None)
 # CAFY_REPO will be used for all allure related logics
 
-START = datetime.now()
-
 
 def pytest_addoption(parser):
-    parser.getgroup("reporting").addoption('--alluredir',
-                                           action="store",
-                                           dest="allurereportdir",
-                                           metavar="DIR",
-                                           default="%s/work/archive" % CAFY_REPO,
-                                           help="Generate Allure report in the specified directory (may not exist)")
+    parser.getgroup("reporting").addoption(
+        '--alluredir',
+        dest="allurereportdir",
+        metavar="DIR",
+        default="%s/work/archive" % CAFY_REPO,
+        help="Generate Allure report in the specified directory (may not exist)")
 
     severities = [v for (_, v) in all_of(Severity)]
 
@@ -54,23 +45,30 @@ def pytest_addoption(parser):
         def a_label_type(string):
             atoms = set(string.split(','))
             if legal_values and not atoms < legal_values:
-                raise argparse.ArgumentTypeError('Illegal {} values: {}, only [{}] are allowed'.format(name, ', '.join(atoms - legal_values), ', '.join(legal_values)))
+                raise argparse.ArgumentTypeError(
+                    'Illegal {} values: {}, only [{}] are allowed'.format(
+                        name, ', '.join(
+                            atoms - legal_values), ', '.join(legal_values)))
 
             return set((name, v) for v in atoms)
 
         return a_label_type
 
-    parser.getgroup("general").addoption('--allure_severities',
-                                         action="store",
-                                         dest="allureseverities",
-                                         metavar="SEVERITIES_SET",
-                                         default={},
-                                         type=label_type(name=Label.SEVERITY, legal_values=set(severities)),
-                                         help="""Comma-separated list of severity names.
+    parser.getgroup("allure_options").addoption(
+        '--allure_severities',
+        action="store",
+        dest="allureseverities",
+        metavar="SEVERITIES_SET",
+        default={},
+        type=label_type(
+            name=Label.SEVERITY,
+            legal_values=set(severities)),
+        help="""Comma-separated list of severity names.
                                          Tests only with these severities will be run.
-                                         Possible values are:%s.""" % ', '.join(severities))
+                                         Possible values are:%s.""" %
+        ', '.join(severities))
 
-    parser.getgroup("general").addoption('--allure_features',
+    parser.getgroup("allure_options").addoption('--allure_features',
                                          action="store",
                                          dest="allurefeatures",
                                          metavar="FEATURES_SET",
@@ -79,7 +77,7 @@ def pytest_addoption(parser):
                                          help="""Comma-separated list of feature names.
                                          Run tests that have at least one of the specified feature labels.""")
 
-    parser.getgroup("general").addoption('--allure_stories',
+    parser.getgroup("allure_options").addoption('--allure_stories',
                                          action="store",
                                          dest="allurestories",
                                          metavar="STORIES_SET",
@@ -88,11 +86,7 @@ def pytest_addoption(parser):
                                          help="""Comma-separated list of story names.
                                          Run tests that have at least one of the specified story labels.""")
 
-
 def pytest_configure(config):
-
-    script_list = config.option.file_or_dir
-
     if CAFY_REPO:
         archive_name = 'allure'
         ARCHIVE = os.path.join(CafyLog.work_dir, archive_name)
@@ -102,16 +96,17 @@ def pytest_configure(config):
 
     if reportdir:  # we actually record something
         allure_impl = AllureImpl(reportdir)
-
         testlistener = AllureTestListener(config)
         pytest.allure._allurelistener = testlistener
         config.pluginmanager.register(testlistener)
 
-        if not hasattr(config, 'slaveinput'):
-            # on xdist-master node do all the important stuff
-            config.pluginmanager.register(AllureAgregatingListener(allure_impl, config))
-            config.pluginmanager.register(AllureCollectionListener(allure_impl))
-
+    if not hasattr(config, 'slaveinput'):
+        # on xdist-master node do all the important stuff
+        config.pluginmanager.register(
+            AllureAgregatingListener(
+                allure_impl, config))
+        config.pluginmanager.register(
+            AllureCollectionListener(allure_impl))
 
 class AllureTestListener(object):
     """
@@ -128,9 +123,11 @@ class AllureTestListener(object):
 
         # FIXME: that flag makes us pre-report failures in the makereport hook.
         # it is here to cope with xdist's begavior regarding -x.
-        # see self.pytest_runtest_makereport and AllureAgregatingListener.pytest_sessionfinish
+        # see self.pytest_runtest_makereport and
+        # AllureAgregatingListener.pytest_sessionfinish
 
-        self._magicaldoublereport = hasattr(self.config, 'slaveinput') and self.config.getvalue("maxfail")
+        self._magicaldoublereport = hasattr(
+            self.config, 'slaveinput') and self.config.getvalue("maxfail")
 
     @pytest.mark.hookwrapper
     def pytest_runtest_protocol(self, item, nextitem):
@@ -141,14 +138,19 @@ class AllureTestListener(object):
         except AttributeError:
             # for doctests that has no `function` attribute
             description = item.reportinfo()[2]
-        self.test = TestCase(name='.'.join(mangle_testnames([x.name for x in parent_down_from_module(item)])),
-                             description=description,
-                             start=now(),
-                             attachments=[],
-                             labels=labels_of(item),
-                             status=None,
-                             steps=[],
-                             id=str(uuid.uuid4()))  # for later resolution in AllureAgregatingListener.pytest_sessionfinish
+        self.test = TestCase(
+            name='.'.join(
+                mangle_testnames(
+                    [
+                        x.name for x in parent_down_from_module(item)])),
+            description=description,
+            start=now(),
+            attachments=[],
+            labels=labels_of(item),
+            status=None,
+            steps=[],
+            id=str(
+                uuid.uuid4()))  # for later resolution in AllureAgregatingListener.pytest_sessionfinish
 
         self.stack = [self.test]
 
@@ -171,7 +173,8 @@ class AllureTestListener(object):
         Attaches ``issues`` to the current active case
         """
         if self.test:
-            self.test.labels.extend([TestLabel(name=Label.ISSUE, value=issue) for issue in issues])
+            self.test.labels.extend(
+                [TestLabel(name=Label.ISSUE, value=issue) for issue in issues])
 
     def start_step(self, name):
         """
@@ -202,34 +205,80 @@ class AllureTestListener(object):
         :param pyteststatus: the failed/xfailed/xpassed thing
         :param status: a :py:class:`allure.constants.Status` entry
         """
-        [self.attach(name, contents, AttachmentType.TEXT) for (name, contents) in dict(report.sections).items()]
+        # To enable color coding in stdout log we have to write allure attachments as html.
+        for (name, contents) in dict(report.sections).items():
+            if "stdout" in name:
+                attachment_type = AttachmentType.HTML
+                formatted_contents = self._convert_to_html(contents)
+            else:
+                attachment_type = AttachmentType.TEXT
+                formatted_contents = contents
+            self.attach(name, formatted_contents, attachment_type)
 
         self.test.stop = now()
         self.test.status = status
 
         if status in FAILED_STATUSES:
-            self.test.failure = Failure(message=get_exception_message(call.excinfo, pyteststatus, report),
-                                        trace=report.longrepr or hasattr(report, 'wasxfail') and report.wasxfail)
+            self.test.failure = Failure(
+                message=get_exception_message(
+                    call.excinfo, pyteststatus, report), trace=report.longrepr or hasattr(
+                    report, 'wasxfail') and report.wasxfail)
         elif status in SKIPPED_STATUSES:
-            skip_message = type(report.longrepr) == tuple and report.longrepr[2] or report.wasxfail
+            skip_message = isinstance(report.longrepr, tuple) and report.longrepr[
+                2] or report.wasxfail
             trim_msg_len = 89
             short_message = skip_message.split('\n')[0][:trim_msg_len]
 
             # FIXME: see pytest.runner.pytest_runtest_makereport
-            self.test.failure = Failure(message=(short_message + '...' * (len(skip_message) > trim_msg_len)),
-                                        trace=status == Status.PENDING and report.longrepr or short_message != skip_message and skip_message or '')
+            self.test.failure = Failure(
+                message=(
+                    short_message + '...' * (
+                        len(skip_message) > trim_msg_len)),
+                trace=status == Status.PENDING and report.longrepr or short_message != skip_message and skip_message or '')
+
+    def _convert_to_html(self, contents):
+        """
+        Converts log to HTML format. Adds different colors based on log prefix
+        """
+        ansi_escape = re.compile(r'\x1b[^m]*m')
+
+        result = "<html><head><style>div { white-space: pre; }</style></head>"
+        result += "<body style=\"font-family:'Courier New', Courier, monospace;font-size:14px\">"
+        for raw_line in contents.splitlines():
+            line = ansi_escape.sub('', raw_line)
+            if line.startswith('-Warning'):
+                result += "<div style=\"color:orange;\">"
+            elif line.startswith('-Fail'):
+                result += "<div style=\"color:black;background-color:red;font-weight:bold\">"
+            elif line.startswith('-Error'):
+                result += "<div style=\"color:red;font-weight:bold\">"
+            elif line.startswith('-Liberr'):
+                result += "<div style=\"color:red;font-weight:bold\">"
+            elif line.startswith('-Success'):
+                result += "<div style=\"color:black;background-color:green;\">"
+            elif line.startswith('-Debug'):
+                result += "<div style=\"color:pink\">"
+            else:
+                result += "<div>"
+            result += html.escape(line)
+            result += "</div>"
+        result += "</body></html>"
+        return result
 
     def report_case(self, item, report):
         """
         Adds `self.test` to the `report` in a `AllureAggegatingListener`-understood way
         """
         parent = parent_module(item)
-        # we attach a four-tuple: (test module ID, test module name, test module doc, environment, TestCase)
-        report.__dict__.update(_allure_result=pickle.dumps((parent.nodeid,
-                                                            parent.module.__name__,
-                                                            parent.module.__doc__ or '',
-                                                            self.environment,
-                                                            self.test)))
+        # we attach a four-tuple: (test module ID, test module name, test
+        # module doc, environment, TestCase)
+        report.__dict__.update(
+            _allure_result=pickle.dumps(
+                (parent.nodeid,
+                 parent.module.__name__,
+                 parent.module.__doc__ or '',
+                 self.environment,
+                 self.test)))
 
     @pytest.mark.hookwrapper
     def pytest_runtest_makereport(self, item, call):
@@ -265,7 +314,9 @@ class AllureTestListener(object):
                 self._fill_case(report, call, status, Status.PASSED)
             elif report.failed:
                 self._fill_case(report, call, status, Status.FAILED)
-                # FIXME: this is here only to work around xdist's stupid -x thing when in exits BEFORE THE TEARDOWN test log. Meh, i should file an issue to xdist
+                # FIXME: this is here only to work around xdist's stupid -x
+                # thing when in exits BEFORE THE TEARDOWN test log. Meh, i
+                # should file an issue to xdist
                 if self._magicaldoublereport:
                     # to minimize ze impact
                     self.report_case(item, report)
@@ -283,7 +334,8 @@ class AllureTestListener(object):
                 else:
                     self._fill_case(report, call, status, Status.CANCELED)
         elif report.when == 'teardown':
-            # as teardown is always called for testitem -- report our status here
+            # as teardown is always called for testitem -- report our status
+            # here
             if not report.passed:
                 if self.test.status not in FAILED_STATUSES:
                     # if test was OK but failed at teardown => broken
@@ -293,20 +345,20 @@ class AllureTestListener(object):
                     # still, that's no big deal -- test has already failed
                     # TODO: think about that once again
                     self.test.status = Status.BROKEN
-            # if a test isn't marked as "unreported" or it has failed, add it to the report.
-            if not item.get_marker("unreported") or self.test.status in FAILED_STATUSES:
-                self.report_case(item, report)
+            self.report_case(item, report)
 
 
 def pytest_runtest_setup(item):
-    item_labels = set((l.name, l.value) for l in labels_of(item))  # see label_type
+    item_labels = set((l.name, l.value)
+                      for l in labels_of(item))  # see label_type
 
     arg_labels = set().union(item.config.option.allurefeatures,
                              item.config.option.allurestories,
                              item.config.option.allureseverities)
 
     if arg_labels and not item_labels & arg_labels:
-        pytest.skip('Not suitable with selected labels: %s.' % ', '.join(text_type(l) for l in sorted(arg_labels)))
+        pytest.skip('Not suitable with selected labels: %s.' %
+                    ', '.join(text_type(l) for l in sorted(arg_labels)))
 
 
 class LazyInitStepContext(StepContext):
@@ -323,13 +375,7 @@ class LazyInitStepContext(StepContext):
 
     @property
     def allure(self):
-        l = self.allure_helper.get_listener()
-
-        # if listener has `stack` we are inside a test
-        # record steps only when that
-        # FIXME: this breaks encapsulation a lot
-        if hasattr(l, 'stack'):
-            return l
+        return self.allure_helper.get_listener()
 
 
 class AllureHelper(object):
@@ -339,7 +385,8 @@ class AllureHelper(object):
     """
 
     def __init__(self):
-        self._allurelistener = None  # FIXME: this gets injected elsewhere, like in the pytest_configure
+        # FIXME: this gets injected elsewhere, like in the pytest_configure
+        self._allurelistener = None
 
     def get_listener(self):
         return self._allurelistener
@@ -432,9 +479,12 @@ class AllureHelper(object):
           def test_baz(steppy_fixture):
               assert steppy_fixture
         """
+        log = CafyLog()
         if callable(title):
+            log.info ("Start of step: %s" %(title))
             return LazyInitStepContext(self, title.__name__)(title)
         else:
+            log.info ("Start of step: %s" %(title))
             return LazyInitStepContext(self, title)
 
     def single_step(self, text):
@@ -531,14 +581,18 @@ class AllureAgregatingListener(object):
         """
 
         # OMG, that is bad
-        attachment.source = self.impl._save_attach(attachment.source, attachment.type)
+        attachment.source = self.impl._save_attach(
+            attachment.source, attachment.type)
         attachment.type = attachment.type.mime_type
 
     def pytest_runtest_logreport(self, report):
         if hasattr(report, '_allure_result'):
-            module_id, module_name, module_doc, environment, testcase = pickle.loads(report._allure_result)
+            module_id, module_name, module_doc, environment, testcase = pickle.loads(
+                report._allure_result)
 
-            report._allure_result = None  # so actual pickled data is garbage-collected, see https://github.com/allure-framework/allure-python/issues/98
+            # so actual pickled data is garbage-collected, see
+            # https://github.com/allure-framework/allure-python/issues/98
+            report._allure_result = None
 
             self.impl.environment.update(environment)
 
@@ -574,100 +628,34 @@ class AllureCollectionListener(object):
             else:
                 status = Status.CANCELED
 
-            self.fails.append(CollectFail(name=mangle_testnames(report.nodeid.split("::"))[-1],
-                                          status=status,
-                                          message=get_exception_message(None, None, report),
-                                          trace=report.longrepr))
+            self.fails.append(
+                CollectFail(
+                    name=mangle_testnames(
+                        report.nodeid.split("::"))[
+                        -1],
+                    status=status,
+                    message=get_exception_message(
+                        None,
+                        None,
+                        report),
+                    trace=report.longrepr))
 
+    @pytest.hookimpl(trylast=True)
     def pytest_sessionfinish(self):
         """
         Creates a testsuite with collection failures if there were any.
         """
 
         if self.fails:
-            self.impl.start_suite(name='test_collection_phase',
-                                  title='Collection phase',
-                                  description='This is the tests collection phase. Failures are modules that failed to collect.')
+            self.impl.start_suite(
+                name='test_collection_phase',
+                title='Collection phase',
+                description='This is the tests collection phase. Failures are modules that failed to collect.')
             for fail in self.fails:
                 self.impl.start_case(name=fail.name.split(".")[-1])
-                self.impl.stop_case(status=fail.status, message=fail.message, trace=fail.trace)
+                self.impl.stop_case(
+                    status=fail.status,
+                    message=fail.message,
+                    trace=fail.trace)
             self.impl.stop_suite()
-        '''
-        ARCHIVE_DIR = CafyLog.work_dir
-        ARCHIVE_NAME = 'allure' + '.zip'
-        ARCHIVE = os.path.join(ARCHIVE_DIR, ARCHIVE_NAME)
-        '''
-        # Check if xml file is generated in ARCHIVE
-        ARCHIVE = os.environ.get('ARCHIVE')
-        files = [os.path.join(ARCHIVE, f)
-                 for f in os.listdir(ARCHIVE) if '-testsuite.xml' in f]
-        print('\nxmlfile_link : ')
-        for f in files:
-            print(f)
-        print('\n')
-
-        if os.environ.get('GENERATE_TOPO_IMAGE') == 'True':
-            #If topology_file is given, convert this to topo_image and
-            #put this image link on allure report
-            #1. Create environment.properties file
-            topo_img_path = os.path.join(ARCHIVE, 'topo_image.png')
-            hyperlink_format = '<a href="{link}">{text}</a>'
-            topo_img = hyperlink_format.format(link=topo_img_path, text='topology_img')
-            write_path = os.path.join(ARCHIVE, 'environment.properties')
-            #print("Write_path = ", write_path)
-            #write_properties_line = 'my.properties.TopoFile='+topo_img
-            write_properties_line = 'Topology_Image='+topo_img
-            with open(write_path, 'w') as f:
-                f.write(write_properties_line)
-
-            #2. Create environment.xml file
-            content ="""<qa:environment xmlns:qa="urn:model.commons.qatools.yandex.ru">
-                <id>2a54c4d7-7d79-4615-b80d-ffc1107016a1</id>
-                <name>Allure sample test pack</name>
-                <parameter>
-                    <name>Test stand</name>
-                    <key>Topology_Image</key>
-                    <value>{}</value>
-                </parameter>
-            </qa:environment>""".format(topo_img)
-            write_path = os.path.join(ARCHIVE, 'environment.xml')
-            with open(write_path, 'w') as f:
-                f.write(content)
-
-
-        #If no-allure option is not given, which means you want to
-        #generate allure report
-        if os.environ.get('NOALLURE') != 'True':
-            # If xml file is created, then generate html report
-            if files:
-                allure_path = '/auto/cafy_dev/cafykit/opt/allure/bin/allure'
-                if os.path.exists(allure_path):
-                    # This cmd generates html file named index.html from xml
-                    cmd = allure_path + ' report generate ' + ARCHIVE + ' -o ' + ARCHIVE
-                else:
-                    # Assuming the code is not being ran from /ws or /auto, instead
-                    # it could be the local machine, so you need to install allure cli.
-                    # and Java 7+ version. We assume,its already installed
-                    # This cmd generates html file named index.html from xml
-                    cmd = 'allure generate ' + ARCHIVE + ' -o ' + ARCHIVE
-
-                os.system(cmd)
-                generated_html_filename = 'index.html'
-                path = CAFY_REPO
-                file_link = os.path.join(
-                    os.path.sep, ARCHIVE, generated_html_filename)
-                if os.path.isfile(file_link):
-                    if path.startswith(('/auto', '/ws')):
-                        html_link = os.path.join(
-                            os.path.sep, 'http://arcee.cisco.com', file_link)
-                    else:
-                        html_link = os.path.join(
-                            os.path.sep, 'file:///', file_link)
-                    print('html_link :')
-                    print(html_link)
-                    CafyLog.htmlfile_link = file_link
-                else:
-                    print('\n Allure html report not generated')
-
-            else:
-                print('\n Allure XML file not created')
+        
