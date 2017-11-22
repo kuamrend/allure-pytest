@@ -27,10 +27,12 @@ else:
 
 
 class StepContext:
-    def __init__(self, allure, title):
+
+    def __init__(self, allure, title, errors=None):
         self.allure = allure
         self.title = title
         self.step = None
+        self.errors = errors
 
     def __enter__(self):
         if self.allure:
@@ -46,7 +48,14 @@ class StepContext:
                 else:
                     self.step.status = Status.FAILED
             else:
-                self.step.status = Status.PASSED
+                if self.errors:
+                    self.step.status = Status.FAILED
+                    self.step.errors = self.errors
+                else:
+                    self.step.status = Status.PASSED
+
+                #print("Errors Now: %s: %s : %s" % (self, self.step, self.errors))
+
             self.allure.stop_step()
 
     def __call__(self, func):
@@ -57,9 +66,12 @@ class StepContext:
 
         @wraps(func)
         def impl(*a, **kw):
-            with StepContext(self.allure, self.title.format(*a, **kw)):
-                return func(*a, **kw)
-
+            with StepContext(self.allure, self.title.format(*a, **kw), self.errors):
+                try:
+                    return func(*a, **kw)
+                except Exception as e:
+                    self.errors.append(e)
+                    #print("Errors Added: %s: %s" % (self,self.errors))
         return impl
 
 
