@@ -5,7 +5,10 @@ Created on Feb 23, 2014
 @author: pupssman
 """
 import os
+import sys
 import uuid
+import inspect 
+
 from contextlib import contextmanager
 from distutils.version import StrictVersion
 from functools import wraps
@@ -25,14 +28,15 @@ else:
     from _pytest.runner import Skipped
     from _pytest.skipping import XFailed
 
+testcase_step_errors = [] #list to store all the step errors of a given testcase
+new_step_status = None
+#testcase_status = None
 
 class StepContext:
-
-    def __init__(self, allure, title, errors=None):
+    def __init__(self, allure, title):
         self.allure = allure
         self.title = title
         self.step = None
-        self.errors = errors
 
     def __enter__(self):
         if self.allure:
@@ -40,6 +44,7 @@ class StepContext:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.allure:
+            global new_step_status
             if exc_type is not None:
                 if exc_type == Skipped:
                     self.step.status = Status.CANCELED
@@ -48,14 +53,13 @@ class StepContext:
                 else:
                     self.step.status = Status.FAILED
             else:
-                if self.errors:
+                if new_step_status =='failed':
                     self.step.status = Status.FAILED
-                    self.step.errors = self.errors
+                    new_step_status = None # Reset 
                 else:
                     self.step.status = Status.PASSED
-
-                #print("Errors Now: %s: %s : %s" % (self, self.step, self.errors))
-
+                
+            print ("Step_status = ", self.step.status)
             self.allure.stop_step()
 
     def __call__(self, func):
@@ -66,12 +70,21 @@ class StepContext:
 
         @wraps(func)
         def impl(*a, **kw):
-            with StepContext(self.allure, self.title.format(*a, **kw), self.errors):
+            with StepContext(self.allure, self.title.format(*a, **kw)):
                 try:
                     return func(*a, **kw)
-                except Exception as e:
-                    self.errors.append(e)
-                    #print("Errors Added: %s: %s" % (self,self.errors))
+                except:
+                    exc_type, exc_val = sys.exc_info()[:2]
+                    global new_step_status
+                    new_step_status = 'failed'
+                    (frame, filename, line, funcname, contextlist) = inspect.stack()[1][0:5]
+                    #filename = os.path.relpath(filename)
+                    context = contextlist[0].lstrip()
+                    # format entry
+                    entry = "{0}:{1}: {2}".format(filename,line,context)
+                    # add entry
+                    global testcase_step_errors
+                    testcase_step_errors.append(entry)
         return impl
 
 

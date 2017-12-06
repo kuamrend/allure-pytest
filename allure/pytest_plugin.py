@@ -7,6 +7,7 @@ import time
 import re
 import html
 
+from datetime import datetime
 from collections import namedtuple
 from six import text_type
 
@@ -19,9 +20,22 @@ from allure.structure import TestCase, TestStep, Attach, TestSuite, Failure, Tes
 
 from logger.cafylog import CafyLog
 
+try:
+    from py.io import saferepr
+except ImportError:
+    saferepr = repr
+
+def get_datentime():
+    'return date and time as string'
+    _time = time.time()
+    return datetime.fromtimestamp(_time).strftime('%Y%m%d-%H%M%S')
+
+_current_time = get_datentime()
 
 CAFY_REPO = os.getenv("GIT_REPO", None)
 # CAFY_REPO will be used for all allure related logics
+
+START = datetime.now()
 
 
 def pytest_addoption(parser):
@@ -29,7 +43,7 @@ def pytest_addoption(parser):
         '--alluredir',
         dest="allurereportdir",
         metavar="DIR",
-        default="%s/work/archive" % CAFY_REPO,
+        default='CAFY_REPO/work/archive',
         help="Generate Allure report in the specified directory (may not exist)")
 
     severities = [v for (_, v) in all_of(Severity)]
@@ -86,27 +100,39 @@ def pytest_addoption(parser):
                                          help="""Comma-separated list of story names.
                                          Run tests that have at least one of the specified story labels.""")
 
+
+    parser.getgroup("allure_options").addoption('--no-allure', dest='no_allure', action='store_true',
+                    help='If you dont want allure report(like jenkins user), default is False')
+
+
 def pytest_configure(config):
-    if CAFY_REPO:
-        archive_name = 'allure'
-        ARCHIVE = os.path.join(CafyLog.work_dir, archive_name)
-        os.environ['ARCHIVE'] = ARCHIVE
-        config.option.allurereportdir = ARCHIVE
-        reportdir = config.option.allurereportdir
 
-    if reportdir:  # we actually record something
-        allure_impl = AllureImpl(reportdir)
-        testlistener = AllureTestListener(config)
-        pytest.allure._allurelistener = testlistener
-        config.pluginmanager.register(testlistener)
+    script_list = config.option.file_or_dir
+    if script_list:
+        _current_time = get_datentime()
+        if CAFY_REPO:
+            archive_name = 'allure'
+            ARCHIVE = os.path.join(CafyLog.work_dir, archive_name)
+            os.environ['ARCHIVE'] = ARCHIVE
+            config.option.allurereportdir = ARCHIVE
+            reportdir = config.option.allurereportdir
 
-    if not hasattr(config, 'slaveinput'):
-        # on xdist-master node do all the important stuff
-        config.pluginmanager.register(
-            AllureAgregatingListener(
-                allure_impl, config))
-        config.pluginmanager.register(
-            AllureCollectionListener(allure_impl))
+        if reportdir:  # we actually record something
+            allure_impl = AllureImpl(reportdir)
+            testlistener = AllureTestListener(config)
+            pytest.allure._allurelistener = testlistener
+            config.pluginmanager.register(testlistener)
+
+        if not hasattr(config, 'slaveinput'):
+            # on xdist-master node do all the important stuff
+            config.pluginmanager.register(
+                AllureAgregatingListener(
+                    allure_impl, config))
+            config.pluginmanager.register(
+                AllureCollectionListener(allure_impl))
+
+        if config.option.no_allure:
+            os.environ['NOALLURE'] = 'True'
 
 class AllureTestListener(object):
     """
@@ -217,12 +243,11 @@ class AllureTestListener(object):
 
         self.test.stop = now()
         self.test.status = status
-
+        
         if status in FAILED_STATUSES:
             self.test.failure = Failure(
                 message=get_exception_message(
-                    call.excinfo, pyteststatus, report), trace=report.longrepr or hasattr(
-                    report, 'wasxfail') and report.wasxfail)
+                    call.excinfo, pyteststatus, report), trace=report.longrepr)
         elif status in SKIPPED_STATUSES:
             skip_message = isinstance(report.longrepr, tuple) and report.longrepr[
                 2] or report.wasxfail
@@ -306,13 +331,34 @@ class AllureTestListener(object):
         """
         report = (yield).get_result()
 
-        status = self.config.hook.pytest_report_teststatus(report=report)
-        status = status and status[0]
-
+        #status = self.config.hook.pytest_report_teststatus(report=report)
+        #status = status and status[0]
+        
+        from allure.common import testcase_step_errors
+        if not testcase_step_errors:
+            status = self.config.hook.pytest_report_teststatus(report=report)
+            status = status and status[0]
+        else:
+            status = 'failed'
+            
         if report.when == 'call':
-            if report.passed:
+            if not testcase_step_errors and report.passed:
                 self._fill_case(report, call, status, Status.PASSED)
-            elif report.failed:
+            
+            elif not testcase_step_errors and report.failed:
+                self._fill_case(report, call, status, Status.FAILED)
+                
+            elif testcase_step_errors :
+                summary = 'Failed Steps: %s' % len(testcase_step_errors)
+                if report.longrepr:
+                    report.sections.append((summary, "\n".join(testcase_step_errors)))
+                else:
+                    longrepr = testcase_step_errors
+                    longrepr = "\n".join(longrepr)
+                    report.longrepr = longrepr
+                
+                report.outcome = "failed"
+                CafyLog().fail(longrepr)
                 self._fill_case(report, call, status, Status.FAILED)
                 # FIXME: this is here only to work around xdist's stupid -x
                 # thing when in exits BEFORE THE TEARDOWN test log. Meh, i
@@ -320,12 +366,20 @@ class AllureTestListener(object):
                 if self._magicaldoublereport:
                     # to minimize ze impact
                     self.report_case(item, report)
+                    
             elif report.skipped:
                 if hasattr(report, 'wasxfail'):
                     self._fill_case(report, call, status, Status.PENDING)
                 else:
                     self._fill_case(report, call, status, Status.CANCELED)
         elif report.when == 'setup':  # setup / teardown
+            # Following 4 lines are added for setting the global namespace
+            # variables
+            nodeid = report.nodeid.split('::()::')
+            finer_nodeid = nodeid[0].split('::')
+            #CafyLog.module_name = finer_nodeid[0]
+            CafyLog.class_name = finer_nodeid[-1]
+
             if report.failed:
                 self._fill_case(report, call, status, Status.BROKEN)
             elif report.skipped:
@@ -346,7 +400,10 @@ class AllureTestListener(object):
                     # TODO: think about that once again
                     self.test.status = Status.BROKEN
             self.report_case(item, report)
-
+         
+        if testcase_step_errors:
+            del testcase_step_errors[:]
+            #testcase_status = None
 
 def pytest_runtest_setup(item):
     item_labels = set((l.name, l.value)
@@ -372,6 +429,9 @@ class LazyInitStepContext(StepContext):
         self.allure_helper = allure_helper
         self.title = title
         self.step = None
+        self.errors=None
+        #super().__init__(allure_helper, title)
+
 
     @property
     def allure(self):
@@ -658,4 +718,82 @@ class AllureCollectionListener(object):
                     message=fail.message,
                     trace=fail.trace)
             self.impl.stop_suite()
-        
+        '''
+        ARCHIVE_DIR = CafyLog.work_dir
+        ARCHIVE_NAME = 'allure' + '.zip'
+        ARCHIVE = os.path.join(ARCHIVE_DIR, ARCHIVE_NAME)
+        '''
+        # Check if xml file is generated in ARCHIVE
+        ARCHIVE = os.environ.get('ARCHIVE')
+        files = [os.path.join(ARCHIVE, f)
+                 for f in os.listdir(ARCHIVE) if '-testsuite.xml' in f]
+        print('\nxmlfile_link : ')
+        for f in files:
+            print(f)
+        print('\n')
+
+        if os.environ.get('GENERATE_TOPO_IMAGE') == 'True':
+            #If topology_file is given, convert this to topo_image and
+            #put this image link on allure report
+            #1. Create environment.properties file
+            topo_img_path = os.path.join(ARCHIVE, 'topo_image.png')
+            hyperlink_format = '<a href="{link}">{text}</a>'
+            topo_img = hyperlink_format.format(link=topo_img_path, text='topology_img')
+            write_path = os.path.join(ARCHIVE, 'environment.properties')
+            #print("Write_path = ", write_path)
+            #write_properties_line = 'my.properties.TopoFile='+topo_img
+            write_properties_line = 'Topology_Image='+topo_img
+            with open(write_path, 'w') as f:
+                f.write(write_properties_line)
+
+            #2. Create environment.xml file
+            content ="""<qa:environment xmlns:qa="urn:model.commons.qatools.yandex.ru">
+                <id>2a54c4d7-7d79-4615-b80d-ffc1107016a1</id>
+                <name>Allure sample test pack</name>
+                <parameter>
+                    <name>Test stand</name>
+                    <key>Topology_Image</key>
+                    <value>{}</value>
+                </parameter>
+            </qa:environment>""".format(topo_img)
+            write_path = os.path.join(ARCHIVE, 'environment.xml')
+            with open(write_path, 'w') as f:
+                f.write(content)
+
+
+        #If no-allure option is not given, which means you want to
+        #generate allure report
+        if os.environ.get('NOALLURE') != 'True':
+            # If xml file is created, then generate html report
+            if files:
+                allure_path = '/auto/cafy_dev/cafykit/opt/allure/bin/allure'
+                if os.path.exists(allure_path):
+                    # This cmd generates html file named index.html from xml
+                    cmd = allure_path + ' report generate ' + ARCHIVE + ' -o ' + ARCHIVE
+                else:
+                    # Assuming the code is not being ran from /ws or /auto, instead
+                    # it could be the local machine, so you need to install allure cli.
+                    # and Java 7+ version. We assume,its already installed
+                    # This cmd generates html file named index.html from xml
+                    cmd = 'allure generate ' + ARCHIVE + ' -o ' + ARCHIVE
+
+                os.system(cmd)
+                generated_html_filename = 'index.html'
+                path = CAFY_REPO
+                file_link = os.path.join(
+                    os.path.sep, ARCHIVE, generated_html_filename)
+                if os.path.isfile(file_link):
+                    if path.startswith(('/auto', '/ws')):
+                        html_link = os.path.join(
+                            os.path.sep, 'http://arcee.cisco.com', file_link)
+                    else:
+                        html_link = os.path.join(
+                            os.path.sep, 'file:///', file_link)
+                    print('html_link :')
+                    print(html_link)
+                    CafyLog.htmlfile_link = file_link
+                else:
+                    print('\n Allure html report not generated')
+
+            else:
+                print('\n Allure XML file not created')
