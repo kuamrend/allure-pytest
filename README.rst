@@ -258,7 +258,7 @@ You can provide test environment parameters such as report name, browser or test
 
 
  def pytest_configure(config):
-     allure.environment(report='Allure report', browser=u'Я.Браузер')
+     allure.environment(report='Allure report', browser=u'Russian')
 
 
  @pytest.fixture(scope="session")
@@ -268,7 +268,7 @@ You can provide test environment parameters such as report name, browser or test
      return host_name
 
 
- @pytest.mark.parametrize('country', ('USA', 'Germany', u'Россия', u'Япония'))
+ @pytest.mark.parametrize('country', ('USA', 'Germany', u'SomeCountry'))
  def test_minor(country):
      allure.environment(country=country)
      assert country
