@@ -776,7 +776,7 @@ class AllureCollectionListener(object):
                     # and Java 7+ version. We assume,its already installed
                     # This cmd generates html file named index.html from xml
                     cmd = 'allure generate ' + ARCHIVE + ' -o ' + ARCHIVE
-                print('Generating combined allure report using: \n{}.'format{cmd})
+                print('Generating combined allure report using: \n{}.'format(cmd))
                 os.system(cmd)
                 generated_html_filename = 'index.html'
                 path = CAFY_REPO
