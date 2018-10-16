@@ -766,7 +766,7 @@ class AllureCollectionListener(object):
         if os.environ.get('NOALLURE') != 'True':
             # If xml file is created, then generate html report
             if files:
-                allure_path = '/auto/cafy_dev/cafykit/opt/allure/bin/allure'
+                allure_path = '/auto/cafy/cafykit/allure/bin/allure'
                 if os.path.exists(allure_path):
                     # This cmd generates html file named index.html from xml
                     cmd = allure_path + ' report generate ' + ARCHIVE + ' -o ' + ARCHIVE
