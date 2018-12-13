@@ -700,7 +700,7 @@ class AllureCollectionListener(object):
                         report),
                     trace=report.longrepr))
 
-    @pytest.hookimpl(trylast=True)
+    @pytest.hookimpl(tryfirst=True)
     def pytest_sessionfinish(self):
         """
         Creates a testsuite with collection failures if there were any.
@@ -718,82 +718,4 @@ class AllureCollectionListener(object):
                     message=fail.message,
                     trace=fail.trace)
             self.impl.stop_suite()
-        '''
-        ARCHIVE_DIR = CafyLog.work_dir
-        ARCHIVE_NAME = 'allure' + '.zip'
-        ARCHIVE = os.path.join(ARCHIVE_DIR, ARCHIVE_NAME)
-        '''
-        # Check if xml file is generated in ARCHIVE
-        ARCHIVE = os.environ.get('ARCHIVE')
-        files = [os.path.join(ARCHIVE, f)
-                 for f in os.listdir(ARCHIVE) if '-testsuite.xml' in f]
-        print('\nxmlfile_link : ')
-        for f in files:
-            print(f)
-        print('\n')
 
-        if os.environ.get('GENERATE_TOPO_IMAGE') == 'True':
-            #If topology_file is given, convert this to topo_image and
-            #put this image link on allure report
-            #1. Create environment.properties file
-            topo_img_path = os.path.join(ARCHIVE, 'topo_image.png')
-            hyperlink_format = '<a href="{link}">{text}</a>'
-            topo_img = hyperlink_format.format(link=topo_img_path, text='topology_img')
-            write_path = os.path.join(ARCHIVE, 'environment.properties')
-            #print("Write_path = ", write_path)
-            #write_properties_line = 'my.properties.TopoFile='+topo_img
-            write_properties_line = 'Topology_Image='+topo_img
-            with open(write_path, 'w') as f:
-                f.write(write_properties_line)
-
-            #2. Create environment.xml file
-            content ="""<qa:environment xmlns:qa="urn:model.commons.qatools.yandex.ru">
-                <id>2a54c4d7-7d79-4615-b80d-ffc1107016a1</id>
-                <name>Allure sample test pack</name>
-                <parameter>
-                    <name>Test stand</name>
-                    <key>Topology_Image</key>
-                    <value>{}</value>
-                </parameter>
-            </qa:environment>""".format(topo_img)
-            write_path = os.path.join(ARCHIVE, 'environment.xml')
-            with open(write_path, 'w') as f:
-                f.write(content)
-
-
-        #If no-allure option is not given, which means you want to
-        #generate allure report
-        if os.environ.get('NOALLURE') != 'True':
-            # If xml file is created, then generate html report
-            if files:
-                allure_path = '/auto/cafy/cafykit/allure/bin/allure'
-                if os.path.exists(allure_path):
-                    # This cmd generates html file named index.html from xml
-                    cmd = allure_path + ' report generate ' + ARCHIVE + ' -o ' + ARCHIVE
-                else:
-                    # Assuming the code is not being ran from /ws or /auto, instead
-                    # it could be the local machine, so you need to install allure cli.
-                    # and Java 7+ version. We assume,its already installed
-                    # This cmd generates html file named index.html from xml
-                    cmd = 'allure generate ' + ARCHIVE + ' -o ' + ARCHIVE
-                print('Generating combined allure report using: \n{}'.format(cmd))
-                os.system(cmd)
-                generated_html_filename = 'index.html'
-                path = CAFY_REPO
-                file_link = os.path.join(
-                    os.path.sep, ARCHIVE, generated_html_filename)
-                if os.path.isfile(file_link):
-                    if path.startswith(('/auto', '/ws')):
-                        html_link = os.path.join(
-                            os.path.sep, 'http://arcee.cisco.com', file_link)
-                    else:
-                        html_link = os.path.join(
-                            os.path.sep, 'file:///', file_link)
-                    print('html_link :')
-                    print(html_link)
-                    CafyLog.htmlfile_link = file_link
-                else:
-                    print('\n Allure html report not generated')
-
-            else:
-                print('\n Allure XML file not created')
